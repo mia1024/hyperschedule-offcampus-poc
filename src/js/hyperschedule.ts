@@ -26,6 +26,7 @@ import * as CourseDetails from "./view/course-details";
 import * as SearchResults from "./view/search-results";
 
 import * as _ from "lodash/fp";
+import {Infinity} from "mathjs";
 
 interface ApiData {
   data: {
@@ -683,15 +684,68 @@ function courseAlreadyAdded(course: Course.CourseV3) {
 
 /// API retrieval
 
-async function retrieveAPI(endpoint: string) {
-  const httpResponse = await fetch(apiURL + endpoint);
-  if (!httpResponse.ok) {
-    throw Error(
-      `Received API error for endpoint ${endpoint}: ` +
-        `${httpResponse.status} ${httpResponse.statusText}`
-    );
+async function retrieveAPI():Promise<any> {
+  const data = await (await fetch("https://www.math.ucla.edu/grad/courses")).text()
+  const parser = new DOMParser()
+  const doc=parser.parseFromString(data, "text/html")
+  const groups=Array.from(doc.querySelectorAll("div.view-grouping"))
+  // @ts-ignore
+  const arr=groups.map(el=>Array.from(el.querySelectorAll("td.views-field")).map(n=>[el.querySelector("div.view-grouping-header")!.innerText.trim(),n.innerText.trim()])).flat()
+  const courses:any[]=[]
+
+  for (const [header,detail] of arr){
+
+    try {
+      let [_, dept, number, title] = header.match(/(\w{4}) (\w+)\s+--\s+(.+)/)
+      let [__,secN, start, end, days, instr] = detail.match(/Sec\. (\d+)\s+:\s+([0-9:]+ (?:AM|PM))\s+-\s+([0-9:]+ (?:AM|PM))\s+(\w+)\s+,(\s+(.+))?/)
+      const sectionCode = `${dept} ${number}-${secN}`
+      const courseCode = `${dept} ${number}`
+
+      start=start.padStart(8,0)
+      end=end.padStart(8,0)
+
+      courses.push({
+        courseCode: sectionCode,
+        courseName: title,
+        courseSortKey: [sectionCode],
+        courseMutualExclusionKey: [courseCode],
+        courseDescription: "",
+        courseInstructors: [instr],
+        courseTerm: "FA2023",
+        courseSchedule: [{
+          scheduleDays: days,
+          scheduleStartTime: start.endsWith("AM") ? start.slice(0, -3) : `${parseInt(start.slice(0, 2)) + 12}:${start.slice(3, 5)}`,
+          scheduleEndTime: end.endsWith("AM") ? end.slice(0, -3) : `${parseInt(end.slice(0, 2)) + 12}:${end.slice(3, 5)}`,
+          scheduleStartDate: "2023-09-15",
+          scheduleEndDate: "2023-12-15",
+          scheduleTermCount: 1,
+          scheduleTerms: [0],
+          scheduleLocation: "",
+        }
+        ],
+        courseCredits: 1,
+        courseSeatsTotal: 0,
+        courseSeatsFilled: 0,
+        courseWaitlistLength: null,
+        courseEnrollmentStatus: "open",
+        permCount: 0,
+      })
+    } catch (e){
+      console.error("cannot parse %o",      [header,detail])
+      console.error(e)
+    }
   }
-  return await httpResponse.json();
+
+  console.log(courses)
+
+  return {
+    data: {
+      terms: {},
+      courses,
+    },
+    error: null,
+    full: true,
+  }
 }
 
 /// DOM manipulation
@@ -1265,8 +1319,7 @@ async function retrieveCourseData() {
     return
   }
 
-  let apiEndpoint = "/v3/courses";
-  const apiResponse = await retrieveAPI(apiEndpoint);
+  const apiResponse = await retrieveAPI();
   if (apiResponse.error) {
     throw Error(`API error: ${apiResponse.error}`);
   }
@@ -1338,7 +1391,7 @@ async function retrieveCourseData() {
 }
 
 async function retrieveCourseDataUntilSuccessful() {
-  const pollInterval = 30 * 1000;
+  const pollInterval = 1e10;
   await runWithExponentialBackoff(
     async () => {
       await retrieveCourseData();
@@ -1357,7 +1410,7 @@ function retrieveCourseDataUntilSuccessfulOnDocumentVisible() {
     if (document.visibilityState === "visible") {
       runWithExponentialBackoff(
         retrieveCourseData,
-        500,
+          1e10,
         1.5,
         "fetch course data (window made visible)"
       );

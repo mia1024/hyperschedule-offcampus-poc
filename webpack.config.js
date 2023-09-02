@@ -66,7 +66,7 @@ module.exports = (env, argv) => {
     devServer: {
       host: "0.0.0.0",
       contentBase: path.join(__dirname, "dist"),
-      port: 5000,
+      port: 5025,
       liveReload: !prod,
     },
   };
